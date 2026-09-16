@@ -32,14 +32,26 @@ skipped automatically if one can't start.
    handler) in that module's `register(registry)` function.
 4. If it's a new module, add it to the import list in
    `tools/registry.py::build_default_registry`.
-5. Add unit tests (against `FakeRuntimeBackend` via the `ctx` fixture) and,
-   if it touches the runtime meaningfully, a real-kernel integration test.
+5. If the tool executes code, mutates the runtime, or is destructive,
+   add it to `security/dangerous_tools.py::DANGEROUS_TOOLS`.
+6. Add unit tests (against the `ctx` fixture's `FakeRuntimeBackend`/
+   `FakeProvider`, see `tests/conftest.py`) and, if it touches the runtime
+   meaningfully, a real-kernel integration test in
+   `tests/test_integration_real_kernel.py`.
 
-## Adding a new runtime backend
+## Adding a new runtime provider
 
-Implement `colab/runtime_backend.py::RuntimeBackend` and pass a factory to
-`SessionManager(backend_factory=...)`. Nothing above the `RuntimeBackend`
-interface needs to change.
+Subclass `colab/providers/base.py::RuntimeProvider` and register it in
+`colab/providers/__init__.py::PROVIDER_REGISTRY`. See
+[RUNTIME_PROVIDERS.md](RUNTIME_PROVIDERS.md) for the exact shape. Nothing
+above the provider interface — no tool, no `SessionManager` caller — needs
+to change; `colab_create_session`'s `provider` argument just gets a new
+valid value.
+
+If you only need a new *transport* to an existing kind of kernel (not a
+new lifecycle/verification story), implement
+`colab/runtime_backend.py::RuntimeBackend` directly instead and give an
+existing or new provider a `_create_backend()` that returns it.
 
 ## Code style
 

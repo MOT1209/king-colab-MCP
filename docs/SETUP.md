@@ -27,17 +27,24 @@ cp .env.example .env
 
 Key variables:
 
-- `COLAB_KERNEL_CONNECTION_FILE` — path to a Jupyter kernel connection file
-  to attach to a real Colab/Jupyter runtime. Leave empty to launch a local
-  kernel (dev/test only).
 - `COLAB_WORKSPACE_ROOT` — local sandbox for notebooks; nothing outside it
   is reachable by notebook tools.
 - `COLAB_REMOTE_WORKSPACE_ROOT` — sandbox *inside the connected runtime*
   for file tools (default `/content/mcp_workspace`).
+- `COLAB_ENVIRONMENT_ROOT` / `COLAB_DATASET_ROOT` — local sandboxes for
+  saved `EnvironmentProfile`s and the dataset store.
 - `MAX_CONCURRENT_JOBS` — how many background jobs (training runs, etc.)
   may run at once.
+- `HEALTH_MONITOR_ENABLED` / `HEALTH_CHECK_INTERVAL_SECONDS` /
+  `MAX_RECONNECT_ATTEMPTS` — background session health checks and
+  bounded auto-reconnect; see [RUNTIME_PROVIDERS.md](RUNTIME_PROVIDERS.md).
+- `DANGEROUS_TOOLS_REQUIRE_CONFIRM` — require `{"confirm": true}` on
+  destructive/execution tools; see [SECURITY.md](SECURITY.md).
 - `REQUIRE_AUTH` / `COLAB_AUTH_MODE` / `MCP_AUTH_TOKEN` — see
-  [SECURITY.md](SECURITY.md).
+  [SECURITY.md](SECURITY.md) and [AUTHENTICATION.md](AUTHENTICATION.md).
+
+There is no single global connection file anymore — sessions are created
+per-call via `colab_create_session`, each choosing its own provider.
 
 ## Connecting to a real Google Colab runtime
 
@@ -49,13 +56,19 @@ this server to an actual Colab GPU/TPU runtime:
 1. Start (or have Colab start) a Jupyter kernel gateway reachable from
    wherever this server runs, and obtain its kernel connection file (host,
    ports, HMAC key — the JSON Jupyter writes when a kernel starts).
-2. Set `COLAB_KERNEL_CONNECTION_FILE` to that file's path.
-3. Start the server; `colab_get_runtime` / `colab_get_gpu` will report the
-   real hardware once connected.
+2. Call `colab_create_session` with
+   `{"provider": "colab", "provider_config": {"connection_file": "/path/to/kernel.json"}}`.
+   The server verifies the kernel is genuinely Colab before the session is
+   created — see [COLAB.md](COLAB.md) for exactly what that check does and
+   why it exists.
+3. `colab_get_runtime` / `colab_get_gpu` against that `session_id` will
+   report the real hardware once connected.
 
-If you only need a sandboxed Python execution environment (not Colab's
-specific hardware), omit `COLAB_KERNEL_CONNECTION_FILE` — the server
-launches and manages its own local kernel automatically.
+If you only need a sandboxed Python execution environment (not
+specifically Colab's hardware), call `colab_create_session` with
+`{"provider": "local_jupyter"}` (or omit `provider` entirely — every tool
+that takes a `session_id` also falls back to a lazily-created default
+`local_jupyter` session if you never call `colab_create_session` at all).
 
 ## Running the server
 

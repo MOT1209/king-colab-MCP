@@ -20,6 +20,8 @@ def _run_training(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
 
     def _target(job: Job) -> dict[str, Any]:
         session = ctx.session_manager.get(session_id) if session_id else ctx.session_manager.get_or_create_default()
+        job.session_id = session.session_id
+        job.runtime_id = session.runtime_id
         job.metadata["session_id"] = session.session_id
         job.append_log(f"Running training code in session {session.session_id}.")
         result = ctx.execution_manager.run(code, session.session_id, timeout=timeout)

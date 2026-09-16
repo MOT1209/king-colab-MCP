@@ -6,7 +6,15 @@ from google_colab_mcp.resources.prompts import PROMPT_DEFS, get_prompt
 
 def test_list_resources_returns_expected_uris():
     uris = {r["uri"] for r in list_resources()}
-    assert uris == {"colab://runtime", "colab://jobs", "colab://notebooks", "colab://artifacts"}
+    assert uris == {
+        "colab://runtime",
+        "colab://sessions",
+        "colab://jobs",
+        "colab://notebooks",
+        "colab://artifacts",
+        "colab://environments",
+        "colab://datasets",
+    }
 
 
 def test_read_runtime_resource(ctx):

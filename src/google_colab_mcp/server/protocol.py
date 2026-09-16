@@ -11,7 +11,8 @@ from typing import Any
 from ..context import ServerContext
 from ..logging.setup import get_logger
 from ..security.auth import authenticate
-from ..security.permissions import check_tool_permission
+from ..security.dangerous_tools import check_dangerous_tool_confirmed
+from ..security.permissions import check_session_tool_permission, check_tool_permission
 from ..security.redact import redact_secrets
 from ..utils.errors import ColabMCPError
 from ..utils.ids import new_id
@@ -37,6 +38,8 @@ def dispatch_tool_call(
         principal = authenticate(ctx.settings, auth_token)
         ctx.rate_limiter.check(principal.id)
         check_tool_permission(ctx.settings, tool_name)
+        check_dangerous_tool_confirmed(ctx.settings, tool_name, arguments)
+        check_session_tool_permission(ctx.session_manager, tool_name, arguments.get("session_id"))
 
         spec = registry.get(tool_name)
         result = spec.handler(ctx, arguments)

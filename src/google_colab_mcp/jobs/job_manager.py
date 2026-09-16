@@ -111,6 +111,28 @@ class JobManager:
         # to completion and this flag is only advisory.
         return job
 
+    def pause(self, job_id: str) -> Job:
+        """Cooperative pause: sets a flag and, if the job is currently RUNNING,
+        marks it PAUSED. The target callable must poll job.pause_requested
+        itself to actually stop doing work — this call alone doesn't halt a
+        thread already inside `target(job)`."""
+        job = self.get(job_id)
+        if job.status.is_terminal:
+            return job
+        job.pause_requested = True
+        if job.status == JobStatus.RUNNING:
+            job.status = JobStatus.PAUSED
+        job.append_log("Pause requested.")
+        return job
+
+    def resume(self, job_id: str) -> Job:
+        job = self.get(job_id)
+        job.pause_requested = False
+        if job.status == JobStatus.PAUSED:
+            job.status = JobStatus.RUNNING
+        job.append_log("Resume requested.")
+        return job
+
     def list_jobs(self) -> list[Job]:
         with self._lock:
             return list(self._jobs.values())

@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from google_colab_mcp.colab.providers.base import ProviderDiscoveryResult, RuntimeProvider
 from google_colab_mcp.colab.runtime_backend import ExecutionResult, RuntimeBackend
 from google_colab_mcp.colab.session_manager import SessionManager
 from google_colab_mcp.config.settings import Settings
@@ -63,19 +64,34 @@ class FakeRuntimeBackend(RuntimeBackend):
         return result
 
 
+class FakeProvider(RuntimeProvider):
+    provider_id = "fake"
+
+    def discover(self) -> ProviderDiscoveryResult:
+        return ProviderDiscoveryResult(available=True)
+
+    def _create_backend(self) -> RuntimeBackend:
+        return FakeRuntimeBackend(self.config.get("connection_file"))
+
+
 @pytest.fixture
 def tmp_settings(tmp_path):
     workspace = tmp_path / "workspace"
     artifacts = tmp_path / "artifacts"
     notebooks = tmp_path / "notebooks"
+    environments = tmp_path / "environments"
+    datasets = tmp_path / "datasets"
     audit = tmp_path / "logs" / "audit.log"
     settings = Settings(
         workspace_root=workspace,
         artifact_root=artifacts,
         notebook_root=notebooks,
+        environment_root=environments,
+        dataset_root=datasets,
         audit_log_path=audit,
         require_auth=False,
         max_requests_per_minute=1000,
+        health_monitor_enabled=False,
     )
     settings.ensure_dirs()
     return settings
@@ -84,8 +100,11 @@ def tmp_settings(tmp_path):
 @pytest.fixture
 def ctx(tmp_settings):
     context = ServerContext.build(tmp_settings)
-    context.session_manager = SessionManager(backend_factory=lambda cf: FakeRuntimeBackend(cf))
-    # ExecutionManager holds a reference to the *original* session_manager; rebuild it too.
+    fake_registry = {"fake": FakeProvider, "local_jupyter": FakeProvider, "remote_jupyter": FakeProvider}
+    context.session_manager = SessionManager(provider_registry=fake_registry)
+    # ExecutionManager (and everything built on it) holds a reference to the
+    # *original* session_manager; rebuild all of it against the fake one.
+    from google_colab_mcp.colab.environment_manager import EnvironmentManager
     from google_colab_mcp.colab.execution_manager import ExecutionManager
     from google_colab_mcp.colab.notebook_manager import NotebookManager
     from google_colab_mcp.colab.remote_fs import RemoteFileManager
@@ -95,5 +114,6 @@ def ctx(tmp_settings):
     context.runtime_manager = RuntimeManager(context.execution_manager)
     context.notebook_manager = NotebookManager(context.path_guard, context.execution_manager)
     context.remote_file_manager = RemoteFileManager(context.execution_manager, context.settings.remote_workspace_root)
+    context.environment_manager = EnvironmentManager(context.execution_manager, context.environment_guard)
     yield context
     context.shutdown()

@@ -48,10 +48,11 @@ class Settings:
     log_level: str = field(default_factory=lambda: os.environ.get("LOG_LEVEL", "INFO"))
 
     # Colab / runtime
+    # Note: there is no single global "the" connection file — every session
+    # picks its own provider/connection info via colab_create_session's
+    # provider_config, since a server can hold multiple sessions against
+    # different providers at once. See docs/RUNTIME_PROVIDERS.md.
     colab_auth_mode: str = field(default_factory=lambda: os.environ.get("COLAB_AUTH_MODE", "none"))
-    colab_kernel_connection_file: str | None = field(
-        default_factory=lambda: os.environ.get("COLAB_KERNEL_CONNECTION_FILE") or None
-    )
     colab_timeout: int = field(default_factory=lambda: _int("COLAB_TIMEOUT", 120))
     max_concurrent_jobs: int = field(default_factory=lambda: _int("MAX_CONCURRENT_JOBS", 4))
 
@@ -81,9 +82,36 @@ class Settings:
     notebook_root: Path = field(
         default_factory=lambda: Path(os.environ.get("COLAB_NOTEBOOK_ROOT", "./workspace/notebooks")).resolve()
     )
+    environment_root: Path = field(
+        default_factory=lambda: Path(os.environ.get("COLAB_ENVIRONMENT_ROOT", "./workspace/environments")).resolve()
+    )
+    dataset_root: Path = field(
+        default_factory=lambda: Path(os.environ.get("COLAB_DATASET_ROOT", "./workspace/datasets")).resolve()
+    )
+
+    # Health monitoring / reconnect
+    health_monitor_enabled: bool = field(default_factory=lambda: _bool("HEALTH_MONITOR_ENABLED", True))
+    health_check_interval_seconds: float = field(
+        default_factory=lambda: float(_int("HEALTH_CHECK_INTERVAL_SECONDS", 30))
+    )
+    max_reconnect_attempts: int = field(default_factory=lambda: _int("MAX_RECONNECT_ATTEMPTS", 3))
+
+    # Dangerous-tool policy
+    dangerous_tools_require_confirm: bool = field(
+        default_factory=lambda: _bool("DANGEROUS_TOOLS_REQUIRE_CONFIRM", False)
+    )
+    max_output_bytes: int = field(default_factory=lambda: _int("MAX_OUTPUT_BYTES", 2_000_000))
+    max_file_size_bytes: int = field(default_factory=lambda: _int("MAX_FILE_SIZE_BYTES", 100_000_000))
 
     def ensure_dirs(self) -> None:
-        for d in (self.workspace_root, self.artifact_root, self.notebook_root, self.audit_log_path.parent):
+        for d in (
+            self.workspace_root,
+            self.artifact_root,
+            self.notebook_root,
+            self.environment_root,
+            self.dataset_root,
+            self.audit_log_path.parent,
+        ):
             d.mkdir(parents=True, exist_ok=True)
 
 

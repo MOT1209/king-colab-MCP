@@ -52,6 +52,7 @@ def build_default_registry() -> ToolRegistry:
     registry = ToolRegistry()
 
     from . import (
+        dataset_tools,
         execution_tools,
         file_tools,
         job_tools,
@@ -69,6 +70,7 @@ def build_default_registry() -> ToolRegistry:
         runtime_tools,
         training_tools,
         job_tools,
+        dataset_tools,
     ):
         module.register(registry)
 

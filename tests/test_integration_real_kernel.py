@@ -57,6 +57,45 @@ def test_real_remote_file_roundtrip(real_session_manager, tmp_path):
     assert not any(entry["name"] == "hello.txt" for entry in listing_after["entries"])
 
 
+def test_real_colab_provider_rejects_non_colab_kernel():
+    """The whole point of ColabProvider: a plain local kernel must never be
+    reported as genuine Colab, even though it speaks the same protocol."""
+    from jupyter_client import KernelManager
+
+    from google_colab_mcp.colab.providers import ColabProvider
+    from google_colab_mcp.utils.errors import ColabUnavailableError
+
+    km = KernelManager(kernel_name="python3")
+    try:
+        km.start_kernel()
+    except Exception as exc:
+        pytest.skip(f"no local Jupyter kernel available: {exc}")
+
+    try:
+        provider = ColabProvider({"connection_file": km.connection_file})
+        with pytest.raises(ColabUnavailableError):
+            provider.connect()
+        assert provider.verification["is_genuine_colab"] is False
+    finally:
+        km.shutdown_kernel(now=True)
+
+
+def test_real_local_jupyter_provider_connects_and_executes():
+    from google_colab_mcp.colab.providers import LocalJupyterProvider
+
+    provider = LocalJupyterProvider({})
+    try:
+        backend = provider.connect()
+    except Exception as exc:
+        pytest.skip(f"no local Jupyter kernel available: {exc}")
+
+    try:
+        result = backend.execute("21 * 2", timeout=15)
+        assert result.result_repr == "42"
+    finally:
+        backend.disconnect()
+
+
 def test_real_runtime_info(real_session_manager):
     from google_colab_mcp.colab.runtime_manager import RuntimeManager
 

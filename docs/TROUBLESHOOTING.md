@@ -1,14 +1,31 @@
 # Troubleshooting
 
 **`connection_error: Failed to connect to the Jupyter/Colab kernel runtime`**
-No kernel could be started or attached to. If `COLAB_KERNEL_CONNECTION_FILE`
-is unset, verify `ipykernel` is installed and a `python3` kernelspec exists
-(`jupyter kernelspec list`). If it's set, verify the connection file exists,
-is readable, and the kernel it describes is actually running and reachable.
+No kernel could be started or attached to. For `provider: "local_jupyter"`
+(the default), verify `ipykernel` is installed and a `python3` kernelspec
+exists (`jupyter kernelspec list`). For `colab`/`remote_jupyter`, verify
+`provider_config.connection_file` exists, is readable, and the kernel it
+describes is actually running and reachable.
+
+**`colab_unavailable_error: Connected kernel does not look like a real Google Colab runtime`**
+`ColabProvider` connected but couldn't verify `google.colab`/Colab
+environment markers — see [COLAB.md](COLAB.md). This is intentional: it
+means you pointed `provider: "colab"` at a kernel that isn't actually
+Colab. Use `local_jupyter`/`remote_jupyter` if you don't need the Colab
+claim, or pass `provider_config.strict: false` to connect anyway for
+testing.
+
+**`provider_error`**
+A `RuntimeProvider`'s `discover()` reported it can't work right now (e.g.
+`docker` with no reachable Docker daemon), or `connect()` failed for a
+provider-specific reason. Check `error.details` and
+[RUNTIME_PROVIDERS.md](RUNTIME_PROVIDERS.md) for that provider's
+requirements.
 
 **`runtime_unavailable_error: No kernel is connected`**
 The session was closed or never connected. Call `colab_create_session` (or
-just call any execute tool, which auto-creates a default session) again.
+just call any execute tool, which auto-creates a default `local_jupyter`
+session) again — or `colab_reconnect_session` if it dropped mid-use.
 
 **`timeout_error` on `colab_execute_code`**
 The code ran longer than `timeout_seconds` (or `COLAB_TIMEOUT`). Either

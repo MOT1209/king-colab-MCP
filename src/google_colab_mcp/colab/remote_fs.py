@@ -13,10 +13,11 @@ import json
 import posixpath
 from typing import Any
 
-from ..utils.errors import ExecutionError, PathAccessError
+from ..utils.errors import ExecutionError, PathAccessError, ResourceExhaustedError
 from .execution_manager import ExecutionManager
 
 _MARKER = "__FS_RESULT__"
+_DEFAULT_MAX_FILE_SIZE_BYTES = 100_000_000
 
 
 def _safe_join(root: str, relative_path: str) -> str:
@@ -26,9 +27,10 @@ def _safe_join(root: str, relative_path: str) -> str:
 
 
 class RemoteFileManager:
-    def __init__(self, execution_manager: ExecutionManager, root: str):
+    def __init__(self, execution_manager: ExecutionManager, root: str, max_file_size_bytes: int = _DEFAULT_MAX_FILE_SIZE_BYTES):
         self.execution_manager = execution_manager
         self.root = root
+        self.max_file_size_bytes = max_file_size_bytes
 
     def _run(self, snippet: str, session_id: str | None) -> dict[str, Any]:
         out = self.execution_manager.run(snippet, session_id, timeout=60)
@@ -41,6 +43,13 @@ class RemoteFileManager:
         raise ExecutionError("Remote filesystem operation produced no result.", details=out["stdout"])
 
     def upload_file(self, path: str, content_b64: str, session_id: str | None = None) -> dict[str, Any]:
+        # base64 inflates size by ~4/3; check before ever sending it through
+        # the kernel protocol, not after decoding on the other side.
+        approx_decoded_size = len(content_b64) * 3 // 4
+        if approx_decoded_size > self.max_file_size_bytes:
+            raise ResourceExhaustedError(
+                f"Upload of ~{approx_decoded_size} bytes exceeds the {self.max_file_size_bytes}-byte limit.",
+            )
         target = _safe_join(self.root, path)
         snippet = f"""
 import base64, json, os

@@ -1,86 +1,53 @@
-"""Package management, executed as `pip` subprocess calls inside the runtime.
+"""Thin MCP wrappers around `colab/environment_manager.py::EnvironmentManager`.
 
-Every install/uninstall is written to the audit log by the server layer
-(tools don't need to log directly), and package names are passed as
-argv list elements to `subprocess.run` — never interpolated into a shell
-string — so a malicious package name cannot break out into shell syntax.
+No pip/subprocess logic lives here — see EnvironmentManager for that, and
+for `validate_package_name`'s argv-safety guarantees (package names are
+never interpolated into a shell string).
 """
 from __future__ import annotations
 
-import json
-import re
 from typing import Any
 
 from ..context import ServerContext
-from ..utils.errors import PackageError, ValidationError
 from .registry import ToolRegistry, ToolSpec
-
-_MARKER = "__PKG_RESULT__"
-_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9,._-]+\])?(==[A-Za-z0-9.*+!_-]+)?$")
-
-
-def _validate_name(name: str) -> None:
-    if not _NAME_RE.match(name):
-        raise ValidationError(
-            f"Invalid package specifier: {name!r}",
-            suggestion="Use a plain PyPI package name, optionally with extras and/or a version pin, e.g. 'torch==2.3.0'.",
-        )
-
-
-def _run_pip(ctx: ServerContext, argv_tail: list[str], session_id: str | None, timeout: float) -> dict[str, Any]:
-    snippet = f"""
-import json, subprocess, sys
-proc = subprocess.run([sys.executable, "-m", "pip", *{argv_tail!r}], capture_output=True, text=True)
-print({_MARKER!r} + json.dumps({{"returncode": proc.returncode, "stdout": proc.stdout[-8000:], "stderr": proc.stderr[-4000:]}}))
-"""
-    out = ctx.execution_manager.run(snippet, session_id, timeout=timeout)
-    for line in out["stdout"].splitlines():
-        if line.startswith(_MARKER):
-            return json.loads(line[len(_MARKER):])
-    raise PackageError("pip did not report a result.", details=out["stdout"])
 
 
 def _install_package(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
-    name = args["package"]
-    _validate_name(name)
-    result = _run_pip(ctx, ["install", "--quiet", name], args.get("session_id"), timeout=600)
-    if result["returncode"] != 0:
-        raise PackageError(f"pip install failed for '{name}'.", details=result["stderr"])
-    return {"package": name, "installed": True, "log": result["stdout"]}
+    return ctx.environment_manager.install_package(args["package"], args.get("session_id"))
 
 
 def _uninstall_package(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
-    name = args["package"]
-    _validate_name(name)
-    result = _run_pip(ctx, ["uninstall", "--yes", "--quiet", name], args.get("session_id"), timeout=300)
-    if result["returncode"] != 0:
-        raise PackageError(f"pip uninstall failed for '{name}'.", details=result["stderr"])
-    return {"package": name, "uninstalled": True, "log": result["stdout"]}
+    return ctx.environment_manager.remove_package(args["package"], args.get("session_id"))
 
 
 def _list_packages(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
-    result = _run_pip(ctx, ["list", "--format", "json"], args.get("session_id"), timeout=60)
-    if result["returncode"] != 0:
-        raise PackageError("pip list failed.", details=result["stderr"])
-    try:
-        packages = json.loads(result["stdout"])
-    except json.JSONDecodeError as exc:
-        raise PackageError("Could not parse pip list output.", details=str(exc)) from exc
+    packages = ctx.environment_manager.list_packages(args.get("session_id"))
     return {"packages": packages, "count": len(packages)}
 
 
 def _get_package_version(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
-    name = args["package"]
-    _validate_name(name)
-    result = _run_pip(ctx, ["show", name], args.get("session_id"), timeout=30)
-    if result["returncode"] != 0:
-        raise PackageError(f"Package '{name}' is not installed.", details=result["stderr"])
-    version = None
-    for line in result["stdout"].splitlines():
-        if line.lower().startswith("version:"):
-            version = line.split(":", 1)[1].strip()
-            break
-    return {"package": name, "version": version}
+    version = ctx.environment_manager.get_package_version(args["package"], args.get("session_id"))
+    return {"package": args["package"], "version": version}
+
+
+def _export_requirements(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
+    return {"requirements_txt": ctx.environment_manager.export_requirements(args.get("session_id"))}
+
+
+def _install_requirements(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
+    return ctx.environment_manager.install_requirements(args["requirements_txt"], args.get("session_id"))
+
+
+def _save_environment_profile(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
+    return ctx.environment_manager.save_profile(args["name"], args.get("session_id"))
+
+
+def _apply_environment_profile(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
+    return ctx.environment_manager.apply_profile(args["name"], args.get("session_id"))
+
+
+def _list_environment_profiles(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
+    return {"profiles": ctx.environment_manager.list_profiles()}
 
 
 def register(registry: ToolRegistry) -> None:
@@ -119,4 +86,46 @@ def register(registry: ToolRegistry) -> None:
             "required": ["package"],
         },
         handler=_get_package_version,
+    ))
+    registry.register(ToolSpec(
+        name="colab_export_requirements",
+        description="Export the runtime's installed packages as a requirements.txt-formatted string (pip freeze).",
+        input_schema={"type": "object", "properties": {"session_id": {"type": "string"}}},
+        handler=_export_requirements,
+    ))
+    registry.register(ToolSpec(
+        name="colab_install_requirements",
+        description="Install every package listed in a requirements.txt-formatted string.",
+        input_schema={
+            "type": "object",
+            "properties": {"requirements_txt": {"type": "string"}, "session_id": {"type": "string"}},
+            "required": ["requirements_txt"],
+        },
+        handler=_install_requirements,
+    ))
+    registry.register(ToolSpec(
+        name="colab_save_environment_profile",
+        description="Snapshot the runtime's currently installed packages as a named, reusable EnvironmentProfile.",
+        input_schema={
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "session_id": {"type": "string"}},
+            "required": ["name"],
+        },
+        handler=_save_environment_profile,
+    ))
+    registry.register(ToolSpec(
+        name="colab_apply_environment_profile",
+        description="Install every package recorded in a previously saved EnvironmentProfile.",
+        input_schema={
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "session_id": {"type": "string"}},
+            "required": ["name"],
+        },
+        handler=_apply_environment_profile,
+    ))
+    registry.register(ToolSpec(
+        name="colab_list_environment_profiles",
+        description="List saved EnvironmentProfile names.",
+        input_schema={"type": "object", "properties": {}},
+        handler=_list_environment_profiles,
     ))

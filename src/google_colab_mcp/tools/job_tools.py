@@ -30,6 +30,14 @@ def _list_jobs(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
     return {"jobs": [j.to_dict() for j in jobs], "count": len(jobs)}
 
 
+def _pause_job(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
+    return ctx.job_manager.pause(args["job_id"]).to_dict()
+
+
+def _resume_job(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
+    return ctx.job_manager.resume(args["job_id"]).to_dict()
+
+
 def _get_artifacts(ctx: ServerContext, args: dict[str, Any]) -> dict[str, Any]:
     job_id = args.get("job_id")
     if job_id:
@@ -69,6 +77,18 @@ def register(registry: ToolRegistry) -> None:
         description="List all known jobs, optionally filtered by status (queued/starting/running/completed/failed/cancelled/timeout).",
         input_schema={"type": "object", "properties": {"status": {"type": "string"}}},
         handler=_list_jobs,
+    ))
+    registry.register(ToolSpec(
+        name="colab_pause_job",
+        description="Cooperatively request a running job to pause. The job's own code must poll for this to actually stop work.",
+        input_schema={"type": "object", "properties": {"job_id": {"type": "string"}}, "required": ["job_id"]},
+        handler=_pause_job,
+    ))
+    registry.register(ToolSpec(
+        name="colab_resume_job",
+        description="Resume a paused job.",
+        input_schema={"type": "object", "properties": {"job_id": {"type": "string"}}, "required": ["job_id"]},
+        handler=_resume_job,
     ))
     registry.register(ToolSpec(
         name="colab_get_artifacts",

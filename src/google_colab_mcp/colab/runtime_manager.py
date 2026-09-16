@@ -15,15 +15,16 @@ from typing import Any
 from .execution_manager import ExecutionManager
 
 _RUNTIME_INFO_SNIPPET = """
-import json, sys, platform
+import json, sys, platform, shutil
 info = {"python_version": sys.version, "platform": platform.platform()}
+info["nvidia_smi_present"] = bool(shutil.which("nvidia-smi"))
 try:
     import torch
     info["cuda_available"] = torch.cuda.is_available()
     info["cuda_version"] = torch.version.cuda
     info["torch_version"] = torch.__version__
 except Exception:
-    info["cuda_available"] = False
+    info["cuda_available"] = info["nvidia_smi_present"]
 try:
     import pkg_resources
     info["installed_package_count"] = len(list(pkg_resources.working_set))
@@ -33,22 +34,88 @@ print("__RUNTIME_INFO__" + json.dumps(info))
 """
 
 _GPU_INFO_SNIPPET = """
-import json
-info = {"available": False, "devices": []}
+import json, subprocess, shutil
+info = {"available": False, "devices": [], "detection_methods_tried": [], "driver_version": None, "cuda_driver_version": None}
+
+# Method 1: nvidia-smi CLI — works regardless of which (if any) Python ML
+# framework is installed, so this is the most framework-agnostic signal.
+info["detection_methods_tried"].append("nvidia-smi")
+try:
+    if shutil.which("nvidia-smi"):
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,name,memory.total,driver_version",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            info["available"] = True
+            for line in out.stdout.strip().splitlines():
+                idx, name, mem_mb, driver = [p.strip() for p in line.split(",")]
+                info["devices"].append({
+                    "index": int(idx), "name": name, "total_memory_mb": float(mem_mb),
+                    "source": "nvidia-smi",
+                })
+                info["driver_version"] = driver
+except Exception:
+    pass
+
+# Method 2: pynvml — structured NVML bindings, catches cases nvidia-smi's
+# text output doesn't parse cleanly, and exposes CUDA driver version.
+info["detection_methods_tried"].append("pynvml")
+if not info["available"]:
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        count = pynvml.nvmlDeviceGetCount()
+        if count > 0:
+            info["available"] = True
+            info["cuda_driver_version"] = pynvml.nvmlSystemGetCudaDriverVersion_v2()
+            for i in range(count):
+                handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+                mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+                info["devices"].append({
+                    "index": i,
+                    "name": pynvml.nvmlDeviceGetName(handle) if isinstance(pynvml.nvmlDeviceGetName(handle), str) else pynvml.nvmlDeviceGetName(handle).decode(),
+                    "total_memory_mb": round(mem.total / (1024 * 1024), 1),
+                    "source": "pynvml",
+                })
+        pynvml.nvmlShutdown()
+    except Exception:
+        pass
+
+# Method 3: torch.cuda — the common case for PyTorch-based training code.
+info["detection_methods_tried"].append("torch")
 try:
     import torch
-    if torch.cuda.is_available():
+    info["torch_version"] = torch.__version__
+    info["torch_cuda_available"] = torch.cuda.is_available()
+    if torch.cuda.is_available() and not info["available"]:
         info["available"] = True
         for i in range(torch.cuda.device_count()):
             props = torch.cuda.get_device_properties(i)
             info["devices"].append({
-                "index": i,
-                "name": props.name,
+                "index": i, "name": props.name,
                 "total_memory_mb": round(props.total_memory / (1024 * 1024), 1),
                 "multi_processor_count": props.multi_processor_count,
+                "source": "torch",
             })
-except Exception as exc:
-    info["error"] = str(exc)
+    info["cuda_version"] = torch.version.cuda
+except Exception:
+    pass
+
+# Method 4: TensorFlow — catches a TF-only runtime with no torch installed.
+info["detection_methods_tried"].append("tensorflow")
+try:
+    import tensorflow as tf
+    tf_gpus = tf.config.list_physical_devices("GPU")
+    info["tensorflow_gpu_count"] = len(tf_gpus)
+    if tf_gpus and not info["available"]:
+        info["available"] = True
+        for i, _ in enumerate(tf_gpus):
+            info["devices"].append({"index": i, "name": str(tf_gpus[i]), "source": "tensorflow"})
+except Exception:
+    pass
+
 print("__GPU_INFO__" + json.dumps(info))
 """
 

@@ -4,10 +4,10 @@
       "command": "google-colab-mcp",
       "args": [],
       "env": {
-        "COLAB_KERNEL_CONNECTION_FILE": "",
         "COLAB_TIMEOUT": "120",
         "MAX_CONCURRENT_JOBS": "4",
-        "COLAB_WORKSPACE_ROOT": "./workspace"
+        "COLAB_WORKSPACE_ROOT": "./workspace",
+        "HEALTH_MONITOR_ENABLED": "true"
       }
     }
   }
