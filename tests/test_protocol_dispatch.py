@@ -40,3 +40,11 @@ def test_dispatch_never_leaks_secrets_in_error_details(ctx):
         ctx, registry, "colab_execute_code", {"code": "RAISE_ERROR api_key=sk-1234567890abcdefghijklmno"}
     )
     assert "sk-1234567890abcdefghijklmno" not in str(payload)
+
+
+def test_dispatch_unknown_tool_includes_retryable(ctx):
+    registry = build_default_registry()
+    payload = dispatch_tool_call(ctx, registry, "colab_does_not_exist", {})
+    assert payload["success"] is False
+    assert "retryable" in payload["error"]
+    assert payload["error"]["retryable"] is False

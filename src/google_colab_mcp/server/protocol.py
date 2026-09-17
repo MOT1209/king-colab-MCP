@@ -60,6 +60,7 @@ def dispatch_tool_call(
                 "message": str(exc),
                 "details": redact_secrets(str(exc)),
                 "suggestion": "Call list_tools to see the available tool names.",
+                "retryable": False,
             },
         }
     except ColabMCPError as exc:
@@ -85,6 +86,7 @@ def dispatch_tool_call(
                 "message": "An unexpected internal error occurred.",
                 "details": redact_secrets(str(exc)),
                 "suggestion": "Check server logs with this request_id for more detail.",
+                "retryable": False,
             },
             "request_id": request_id,
         }

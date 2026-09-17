@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "google-colab-mcp"
-version = "0.1.0"
+version = "1.0.0"
 description = "Standalone, framework-agnostic MCP server for controlling Google Colab (and any Jupyter-compatible runtime) from any MCP-compatible AI agent."
 readme = "README.md"
 license = { text = "MIT" }
